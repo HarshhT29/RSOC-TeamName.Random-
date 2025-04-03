@@ -62,18 +62,72 @@ export interface ContributorScoreData {
   repoHealthScore: number
 }
 
+export interface OpenSourceValueData {
+  username: string;
+  totalScore: number;
+  repositories: {
+    name: string;
+    fullName: string;
+    contributorScore: number;
+    isOpenSource: boolean;
+    url: string;
+  }[];
+}
+
 // Function to check if a repository is open source
 async function isOpenSourceRepo(owner: string, repo: string): Promise<boolean> {
   try {
+    // Get repository data
     const repoResponse = await octokit.repos.get({
       owner,
       repo,
     });
     
-    // A repository is considered open source if:
-    // 1. It's not private
-    // 2. It has a license (optional but good indicator)
-    return !repoResponse.data.private;
+    const repoData = repoResponse.data;
+    
+    // Get contributors data
+    const contributorsResponse = await octokit.repos.listContributors({
+      owner,
+      repo,
+      per_page: 100
+    });
+    const numContributors = contributorsResponse.data.length;
+    
+    // Calculate activity in last 6 months
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    
+    const commitsResponse = await octokit.repos.listCommits({
+      owner,
+      repo,
+      since: sixMonthsAgo.toISOString(),
+      per_page: 100
+    });
+    const recentActivity = commitsResponse.data.length;
+    
+    // Analyze factors
+    const factors = {
+      forks: repoData.forks_count,
+      stars: repoData.stargazers_count,
+      contributors: numContributors,
+      hasLicense: !!repoData.license,
+      issues: repoData.open_issues_count,
+      recentActivity: recentActivity,
+      size: repoData.size // in KB
+    };
+    
+    // Scoring (using the same weights as the Python code)
+    let score = 0;
+    score += Math.min(factors.forks, 50) * 0.5;  // max 25 points
+    score += Math.min(factors.stars, 100) * 0.3;  // max 30 points
+    score += Math.min(factors.contributors, 10) * 5;  // max 50 points
+    score += factors.hasLicense ? 20 : 0;
+    score += Math.min(factors.issues, 50) * 0.4;  // max 20 points
+    score += Math.min(factors.recentActivity, 100) * 0.2;  // max 20 points
+    score += Math.min(factors.size / 1000, 10);  // max 10 points (for size in MB)
+    
+    // Repository is considered open source if score > 50
+    return score > 50;
   } catch (error) {
     console.error("Error checking if repo is open source:", error);
     return false;
@@ -461,5 +515,83 @@ function generateMonthlyTrends(items: any[], isPR = false) {
     closed: month.closed,
     merged: isPR ? month.merged : 0,
   }))
+}
+
+// Calculate the open source value for a user
+export async function calculateOpenSourceValue(username: string): Promise<OpenSourceValueData> {
+  try {
+    // Fetch user's repositories
+    const userReposResponse = await octokit.repos.listForUser({
+      username,
+      per_page: 100,
+      sort: 'updated'
+    });
+    
+    const repos = userReposResponse.data;
+    
+    // Create result object
+    const result: OpenSourceValueData = {
+      username,
+      totalScore: 0,
+      repositories: []
+    };
+    
+    // Process each repository
+    const repoPromises = repos.map(async (repo) => {
+      let repoOwner = repo.owner.login;
+      let repoName = repo.name;
+      
+      // Check if repo is a fork and get parent info if needed
+      if (repo.fork) {
+        try {
+          // Get the parent repository for a fork
+          const repoDetailsResponse = await octokit.repos.get({
+            owner: repo.owner.login,
+            repo: repo.name
+          });
+          
+          if (repoDetailsResponse.data.parent) {
+            repoOwner = repoDetailsResponse.data.parent.owner.login;
+            repoName = repoDetailsResponse.data.parent.name;
+          }
+        } catch (error) {
+          console.warn(`Could not get parent repo for ${repo.full_name}`, error);
+        }
+      }
+      
+      // Calculate contributor score for this repository
+      const contributorData = await calculateContributorScore(username, repoOwner, repoName);
+      
+      if (contributorData) {
+        result.repositories.push({
+          name: repoName,
+          fullName: `${repoOwner}/${repoName}`,
+          contributorScore: contributorData.contributorScore,
+          isOpenSource: contributorData.isOpenSource,
+          url: `https://github.com/${repoOwner}/${repoName}`
+        });
+        
+        // Only add to total score if it's an open source repository
+        if (contributorData.isOpenSource) {
+          result.totalScore += contributorData.contributorScore;
+        }
+      }
+    });
+    
+    // Wait for all repository processing to complete
+    await Promise.all(repoPromises);
+    
+    // Sort repositories by contributor score (highest first)
+    result.repositories.sort((a, b) => b.contributorScore - a.contributorScore);
+    
+    return result;
+  } catch (error) {
+    console.error("Error calculating open source value:", error);
+    return {
+      username,
+      totalScore: 0,
+      repositories: []
+    };
+  }
 }
 

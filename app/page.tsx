@@ -75,11 +75,17 @@ export default function Home() {
           analyze stars, forks, contributors, issues, and pull requests.
         </p>
 
-        <div className="w-full flex justify-center mb-4">
+        <div className="w-full flex justify-center mb-4 gap-2">
           <Link href="/contributor-score">
             <Button variant="outline" className="flex items-center">
               <User className="mr-2 h-4 w-4" />
               Check Contributor Score
+            </Button>
+          </Link>
+          <Link href="/user-profile">
+            <Button variant="outline" className="flex items-center">
+              <User className="mr-2 h-4 w-4" />
+              User Profile Analysis
             </Button>
           </Link>
         </div>
