@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, Github } from "lucide-react"
+import { AlertCircle, Github, User } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import RepoOverview from "@/components/repo-overview"
 import ContributorStats from "@/components/contributor-stats"
@@ -16,6 +16,7 @@ import IssueStats from "@/components/issue-stats"
 import PullRequestStats from "@/components/pull-request-stats"
 import { useQuery } from "@tanstack/react-query"
 import { fetchRepoData } from "@/lib/github-api"
+import Link from "next/link"
 
 export default function Home() {
   const [repoUrl, setRepoUrl] = useState("")
@@ -73,6 +74,15 @@ export default function Home() {
           Get detailed insights and visualizations for any GitHub repository. Enter a GitHub repository URL below to
           analyze stars, forks, contributors, issues, and pull requests.
         </p>
+
+        <div className="w-full flex justify-center mb-4">
+          <Link href="/contributor-score">
+            <Button variant="outline" className="flex items-center">
+              <User className="mr-2 h-4 w-4" />
+              Check Contributor Score
+            </Button>
+          </Link>
+        </div>
 
         <form onSubmit={handleSubmit} className="w-full max-w-xl flex gap-2">
           <Input
