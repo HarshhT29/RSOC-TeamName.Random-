@@ -6,9 +6,9 @@ import { Providers } from '@/components/Providers'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata = {
-  title: 'GitHub Repo Analyzer',
-  description: 'Analyze GitHub repositories and get detailed insights',
-  generator: 'v0.dev',
+  title: 'TechTalentTracker - GitHub Analysis for Placement Cells',
+  description: 'Analyze student GitHub repositories and activity for placement evaluation',
+  generator: 'TechTalentTracker',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

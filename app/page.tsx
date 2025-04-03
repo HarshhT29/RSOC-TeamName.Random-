@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, Github, User } from "lucide-react"
+import { AlertCircle, Github, User, BookOpen, Award, BarChart, Upload, Briefcase, GraduationCap } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import RepoOverview from "@/components/repo-overview"
 import ContributorStats from "@/components/contributor-stats"
@@ -66,29 +66,79 @@ export default function Home() {
 
   return (
     <main className="container mx-auto py-8 px-4">
+      {/* Brand Header */}
+      <div className="flex flex-col items-center mb-12 text-center">
+        <div className="flex items-center mb-4">
+          <div className="bg-primary rounded-full p-3 mr-3">
+            <GraduationCap className="h-8 w-8 text-white" />
+          </div>
+          <h1 className="text-4xl font-bold">TechTalentTracker</h1>
+        </div>
+        <p className="text-xl text-muted-foreground max-w-3xl mb-8">
+          The ultimate platform for placement cells to assess students' open source contributions
+          and technical skills based on their GitHub activity.
+        </p>
+        
+        {/* Navigation Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 w-full max-w-4xl mb-10">
+          <Link href="/" className="w-full">
+            <Card className="h-full hover:border-primary transition-colors">
+              <CardContent className="flex flex-col items-center justify-center p-6">
+                <BookOpen className="h-8 w-8 mb-3 text-primary" />
+                <h3 className="font-semibold text-center">Analyze Repo</h3>
+                <p className="text-sm text-muted-foreground text-center mt-2">
+                  Evaluate a GitHub repository's health and activity
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+          
+          <Link href="/contributor-score" className="w-full">
+            <Card className="h-full hover:border-primary transition-colors">
+              <CardContent className="flex flex-col items-center justify-center p-6">
+                <Award className="h-8 w-8 mb-3 text-primary" />
+                <h3 className="font-semibold text-center">Check Contributor Score</h3>
+                <p className="text-sm text-muted-foreground text-center mt-2">
+                  Measure a student's contribution to a specific repository
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+          
+          <Link href="/user-profile" className="w-full">
+            <Card className="h-full hover:border-primary transition-colors">
+              <CardContent className="flex flex-col items-center justify-center p-6">
+                <BarChart className="h-8 w-8 mb-3 text-primary" />
+                <h3 className="font-semibold text-center">User Profile Analysis</h3>
+                <p className="text-sm text-muted-foreground text-center mt-2">
+                  Comprehensive analysis of a student's GitHub activity
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+          
+          <Link href="/upload-students" className="w-full">
+            <Card className="h-full hover:border-primary transition-colors">
+              <CardContent className="flex flex-col items-center justify-center p-6">
+                <Upload className="h-8 w-8 mb-3 text-primary" />
+                <h3 className="font-semibold text-center">Upload All Students</h3>
+                <p className="text-sm text-muted-foreground text-center mt-2">
+                  Batch analyze GitHub profiles from CSV/Excel
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
+      </div>
+
       <div className="flex flex-col items-center mb-8">
-        <h1 className="text-3xl font-bold mb-2 flex items-center">
-          <Github className="mr-2" /> GitHub Repo Analyzer
-        </h1>
+        <h2 className="text-2xl font-bold mb-2 flex items-center">
+          <Github className="mr-2" /> Repository Analysis
+        </h2>
         <p className="text-muted-foreground text-center max-w-2xl mb-6">
           Get detailed insights and visualizations for any GitHub repository. Enter a GitHub repository URL below to
           analyze stars, forks, contributors, issues, and pull requests.
         </p>
-
-        <div className="w-full flex justify-center mb-4 gap-2">
-          <Link href="/contributor-score">
-            <Button variant="outline" className="flex items-center">
-              <User className="mr-2 h-4 w-4" />
-              Check Contributor Score
-            </Button>
-          </Link>
-          <Link href="/user-profile">
-            <Button variant="outline" className="flex items-center">
-              <User className="mr-2 h-4 w-4" />
-              User Profile Analysis
-            </Button>
-          </Link>
-        </div>
 
         <form onSubmit={handleSubmit} className="w-full max-w-xl flex gap-2">
           <Input
