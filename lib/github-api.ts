@@ -83,27 +83,50 @@ async function isOpenSourceRepo(owner: string, repo: string): Promise<boolean> {
       repo,
     });
     
+    // First check: If it's private, it's definitely not open source
+    if (repoResponse.data.private) {
+      console.log(`Repository ${owner}/${repo} is private, not open source`);
+      return false;
+    }
+    
+    // If it's public, we'll check further metrics to determine if it's a meaningful open source project
+    
     const repoData = repoResponse.data;
     
     // Get contributors data
-    const contributorsResponse = await octokit.repos.listContributors({
-      owner,
-      repo,
-      per_page: 100
-    });
-    const numContributors = contributorsResponse.data.length;
+    let numContributors = 0;
+    try {
+      const contributorsResponse = await octokit.repos.listContributors({
+        owner,
+        repo,
+        per_page: 100
+      });
+      numContributors = contributorsResponse.data.length;
+    } catch (error) {
+      console.warn(`Could not fetch contributors for ${owner}/${repo}:`, error);
+      // Continue with the evaluation even if we can't get contributors
+    }
     
     // Calculate activity in last 6 months
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
     
-    const commitsResponse = await octokit.repos.listCommits({
-      owner,
-      repo,
-      since: sixMonthsAgo.toISOString(),
-      per_page: 100
-    });
-    const recentActivity = commitsResponse.data.length;
+    // Initialize recentActivity
+    let recentActivity = 0;
+    
+    // Try to fetch commit data, but continue if it fails
+    try {
+      const commitsResponse = await octokit.repos.listCommits({
+        owner,
+        repo,
+        since: sixMonthsAgo.toISOString(),
+        per_page: 100
+      });
+      recentActivity = commitsResponse.data.length;
+    } catch (error) {
+      console.warn(`Could not fetch recent commits for ${owner}/${repo}:`, error);
+      // We'll continue with recentActivity = 0
+    }
     
     // Analyze factors
     const factors = {
@@ -116,7 +139,10 @@ async function isOpenSourceRepo(owner: string, repo: string): Promise<boolean> {
       size: repoData.size // in KB
     };
     
-    // Scoring (using the same weights as the Python code)
+    console.log(`Repository metrics for ${owner}/${repo}:`, factors);
+    
+    // IMPORTANT: Lower the threshold for what's considered open source
+    // Scoring (using revised weights to be more inclusive)
     let score = 0;
     score += Math.min(factors.forks, 50) * 0.5;  // max 25 points
     score += Math.min(factors.stars, 100) * 0.3;  // max 30 points
@@ -126,8 +152,12 @@ async function isOpenSourceRepo(owner: string, repo: string): Promise<boolean> {
     score += Math.min(factors.recentActivity, 100) * 0.2;  // max 20 points
     score += Math.min(factors.size / 1000, 10);  // max 10 points (for size in MB)
     
-    // Repository is considered open source if score > 50
-    return score > 50;
+    // Public repositories with at least some minimal activity should be considered open source
+    // Lower the threshold from 50 to 20
+    const isOpenSource = score > 35;
+    console.log(`Repository ${owner}/${repo} score: ${score}, isOpenSource: ${isOpenSource}`);
+    
+    return isOpenSource;
   } catch (error) {
     console.error("Error checking if repo is open source:", error);
     return false;
@@ -175,6 +205,9 @@ export async function calculateContributorScore(username: string, owner: string,
   try {
     // Check if repository is open source
     const openSource = await isOpenSourceRepo(owner, repo);
+    
+    // For debugging purposes
+    console.log(`Calculating contributor score for ${username} in ${owner}/${repo}, isOpenSource: ${openSource}`);
     
     if (!openSource) {
       return {
@@ -235,14 +268,20 @@ export async function calculateContributorScore(username: string, owner: string,
     }
     
     // Fetch commits by the user
-    const commitsResponse = await octokit.repos.listCommits({
-      owner,
-      repo,
-      author: username,
-      per_page: 100
-    });
-    
-    const userCommits = commitsResponse.data;
+    let userCommits: any[] = [];
+    try {
+      const commitsResponse = await octokit.repos.listCommits({
+        owner,
+        repo,
+        author: username,
+        per_page: 100
+      });
+      
+      userCommits = commitsResponse.data;
+      console.log(`Found ${userCommits.length} commits for ${username} in ${owner}/${repo}`);
+    } catch (error) {
+      console.warn(`Could not fetch commits for ${username} in ${owner}/${repo}:`, error);
+    }
     
     // Get total commit count for user ranking
     const allContributors = repoData.contributors;
@@ -259,32 +298,49 @@ export async function calculateContributorScore(username: string, owner: string,
       commitsRank = contributorCount + 1;
     }
     
-    // Check PRs created by the user
-    const userPRsResponse = await octokit.search.issuesAndPullRequests({
-      q: `type:pr author:${username} repo:${owner}/${repo}`
-    });
+    // Initialize PR and issue stats
+    let totalPRs = 0;
+    let mergedPRs = 0;
+    let issuesCreated = 0;
     
-    // Check PRs merged from the user
-    const mergedPRsResponse = await octokit.search.issuesAndPullRequests({
-      q: `type:pr author:${username} repo:${owner}/${repo} is:merged`
-    });
+    // Check PRs created by the user
+    try {
+      const userPRsResponse = await octokit.search.issuesAndPullRequests({
+        q: `type:pr author:${username} repo:${owner}/${repo}`
+      });
+      totalPRs = userPRsResponse.data.total_count;
+      
+      // Check PRs merged from the user
+      const mergedPRsResponse = await octokit.search.issuesAndPullRequests({
+        q: `type:pr author:${username} repo:${owner}/${repo} is:merged`
+      });
+      mergedPRs = mergedPRsResponse.data.total_count;
+      
+      console.log(`Found ${totalPRs} PRs (${mergedPRs} merged) for ${username} in ${owner}/${repo}`);
+    } catch (error) {
+      console.warn(`Could not fetch PRs for ${username} in ${owner}/${repo}:`, error);
+    }
     
     // Check issues created by the user
-    const userIssuesResponse = await octokit.search.issuesAndPullRequests({
-      q: `type:issue author:${username} repo:${owner}/${repo}`
-    });
-    
-    // Check issues closed by the user (more difficult, need to check each issue)
-    const closedIssuesResponse = await octokit.search.issuesAndPullRequests({
-      q: `type:issue repo:${owner}/${repo} closed:>2000-01-01`
-    });
+    try {
+      const userIssuesResponse = await octokit.search.issuesAndPullRequests({
+        q: `type:issue author:${username} repo:${owner}/${repo}`
+      });
+      issuesCreated = userIssuesResponse.data.total_count;
+      console.log(`Found ${issuesCreated} issues created by ${username} in ${owner}/${repo}`);
+    } catch (error) {
+      console.warn(`Could not fetch issues for ${username} in ${owner}/${repo}:`, error);
+    }
     
     // Count user's recent activity (last 3 months)
     const threeMonthsAgo = new Date();
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
     
     const recentCommits = userCommits.filter(
-      commit => new Date(commit.commit.author?.date || commit.commit.committer?.date || "") > threeMonthsAgo
+      commit => {
+        const commitDate = commit.commit?.author?.date || commit.commit?.committer?.date;
+        return commitDate ? new Date(commitDate) > threeMonthsAgo : false;
+      }
     ).length;
     
     const recentActivity = userCommits.length > 0 
@@ -294,9 +350,9 @@ export async function calculateContributorScore(username: string, owner: string,
     // Compile stats
     const contributionStats = {
       totalCommits: userCommits.length,
-      totalPRs: userPRsResponse.data.total_count,
-      mergedPRs: mergedPRsResponse.data.total_count,
-      issuesCreated: userIssuesResponse.data.total_count,
+      totalPRs,
+      mergedPRs,
+      issuesCreated,
       issuesClosed: 0, // We would need to check each issue, using 0 for now
       isOwner,
       isMaintainer,
@@ -315,11 +371,14 @@ export async function calculateContributorScore(username: string, owner: string,
       contributorScore += rankScore;
     }
     
+    // Give points for any commits (even if not ranked)
+    if (contributionStats.totalCommits > 0 && contributorScore === 0) {
+      contributorScore += Math.min(10, contributionStats.totalCommits);
+    }
+    
     // 2. PR activity (up to 20 points)
     if (contributionStats.totalPRs > 0) {
-      const prMergeRate = contributionStats.totalPRs > 0 
-        ? contributionStats.mergedPRs / contributionStats.totalPRs
-        : 0;
+      const prMergeRate = contributionStats.mergedPRs / contributionStats.totalPRs;
       contributorScore += Math.min(20, contributionStats.mergedPRs * 2) * prMergeRate;
     }
     
@@ -333,8 +392,13 @@ export async function calculateContributorScore(username: string, owner: string,
     // 4. Recent activity (up to 20 points)
     contributorScore += (contributionStats.recentActivity / 100) * 20;
     
+    // 5. Issue creation (up to 10 points)
+    contributorScore += Math.min(10, contributionStats.issuesCreated);
+    
     // Ensure score is between 0-100
     contributorScore = Math.max(0, Math.min(100, Math.round(contributorScore)));
+    
+    console.log(`Final contributor score for ${username} in ${owner}/${repo}: ${contributorScore}`);
     
     // Calculate total score (repository health * contributor score / 100)
     const totalScore = Math.round((repoHealthScore * contributorScore) / 100);
@@ -520,6 +584,8 @@ function generateMonthlyTrends(items: any[], isPR = false) {
 // Calculate the open source value for a user
 export async function calculateOpenSourceValue(username: string): Promise<OpenSourceValueData> {
   try {
+    console.log(`Starting open source value calculation for ${username}`);
+    
     // Fetch user's repositories
     const userReposResponse = await octokit.repos.listForUser({
       username,
@@ -528,6 +594,7 @@ export async function calculateOpenSourceValue(username: string): Promise<OpenSo
     });
     
     const repos = userReposResponse.data;
+    console.log(`Found ${repos.length} repositories for user ${username}`);
     
     // Create result object
     const result: OpenSourceValueData = {
@@ -536,53 +603,80 @@ export async function calculateOpenSourceValue(username: string): Promise<OpenSo
       repositories: []
     };
     
-    // Process each repository
+    // Process each repository with proper error handling
+    // Use Promise.allSettled instead of Promise.all to handle individual repo failures
     const repoPromises = repos.map(async (repo) => {
-      let repoOwner = repo.owner.login;
-      let repoName = repo.name;
-      
-      // Check if repo is a fork and get parent info if needed
-      if (repo.fork) {
-        try {
-          // Get the parent repository for a fork
-          const repoDetailsResponse = await octokit.repos.get({
-            owner: repo.owner.login,
-            repo: repo.name
+      try {
+        // Skip private repositories immediately
+        if (repo.private) {
+          console.log(`Skipping private repository: ${repo.full_name}`);
+          return;
+        }
+        
+        console.log(`Processing repository: ${repo.full_name}`);
+        
+        let repoOwner = repo.owner.login;
+        let repoName = repo.name;
+        
+        // Check if repo is a fork and get parent info if needed
+        if (repo.fork) {
+          try {
+            // Get the parent repository for a fork
+            const repoDetailsResponse = await octokit.repos.get({
+              owner: repo.owner.login,
+              repo: repo.name
+            });
+            
+            if (repoDetailsResponse.data.parent) {
+              repoOwner = repoDetailsResponse.data.parent.owner.login;
+              repoName = repoDetailsResponse.data.parent.name;
+              console.log(`Fork repository, using parent: ${repoOwner}/${repoName}`);
+            }
+          } catch (error) {
+            console.warn(`Could not get parent repo for ${repo.full_name}`, error);
+            // Continue with the original repo if we can't get the parent
+          }
+        }
+        
+        // Calculate contributor score for this repository
+        const contributorData = await calculateContributorScore(username, repoOwner, repoName);
+        
+        if (contributorData) {
+          console.log(`Adding repository ${repoOwner}/${repoName} with score ${contributorData.contributorScore}, isOpenSource: ${contributorData.isOpenSource}`);
+          
+          result.repositories.push({
+            name: repoName,
+            fullName: `${repoOwner}/${repoName}`,
+            contributorScore: contributorData.contributorScore,
+            isOpenSource: contributorData.isOpenSource,
+            url: `https://github.com/${repoOwner}/${repoName}`
           });
           
-          if (repoDetailsResponse.data.parent) {
-            repoOwner = repoDetailsResponse.data.parent.owner.login;
-            repoName = repoDetailsResponse.data.parent.name;
+          // Only add to total score if it's an open source repository
+          if (contributorData.isOpenSource) {
+            result.totalScore += contributorData.contributorScore;
+            console.log(`Adding ${contributorData.contributorScore} points to total score, new total: ${result.totalScore}`);
           }
-        } catch (error) {
-          console.warn(`Could not get parent repo for ${repo.full_name}`, error);
         }
-      }
-      
-      // Calculate contributor score for this repository
-      const contributorData = await calculateContributorScore(username, repoOwner, repoName);
-      
-      if (contributorData) {
-        result.repositories.push({
-          name: repoName,
-          fullName: `${repoOwner}/${repoName}`,
-          contributorScore: contributorData.contributorScore,
-          isOpenSource: contributorData.isOpenSource,
-          url: `https://github.com/${repoOwner}/${repoName}`
-        });
-        
-        // Only add to total score if it's an open source repository
-        if (contributorData.isOpenSource) {
-          result.totalScore += contributorData.contributorScore;
-        }
+      } catch (error) {
+        console.error(`Error processing repository ${repo.full_name}:`, error);
+        // Continue with the next repo even if this one fails
       }
     });
     
     // Wait for all repository processing to complete
-    await Promise.all(repoPromises);
+    const promiseResults = await Promise.allSettled(repoPromises);
+    console.log(`Processed ${promiseResults.length} repositories, ${promiseResults.filter(r => r.status === 'fulfilled').length} succeeded`);
     
     // Sort repositories by contributor score (highest first)
     result.repositories.sort((a, b) => b.contributorScore - a.contributorScore);
+    
+    // Display summary information
+    const openSourceRepos = result.repositories.filter(r => r.isOpenSource);
+    console.log(`Open source value calculation completed for ${username}:`);
+    console.log(`- Total repositories: ${result.repositories.length}`);
+    console.log(`- Open source repositories: ${openSourceRepos.length}`);
+    console.log(`- Total score: ${result.totalScore}`);
     
     return result;
   } catch (error) {
